@@ -13,6 +13,14 @@ end
 
 local function generateGameDataContext()
     local context = {}
+    local servicesToScan = {
+        game:GetService("Workspace"),
+        game:GetService("ReplicatedStorage"),
+        game:GetService("ReplicatedFirst"),
+        game:GetService("Players"),
+        game:GetService("StarterGui")
+    }
+    
     local localPlayer = game:GetService("Players").LocalPlayer
     local leaderstats = localPlayer and localPlayer:FindFirstChild("leaderstats")
     if leaderstats then
@@ -39,16 +47,21 @@ local function generateGameDataContext()
         end
     end
 
-    for _, descendant in ipairs(game:GetDescendants()) do
-        if descendant:IsA("RemoteFunction") then
-            table.insert(context, "REMOTE: " .. descendant:GetFullName())
-        elseif descendant:IsA("ModuleScript") then
-            local ok, mod = pcall(require, descendant)
-            if ok and type(mod) == "table" then
-                dumpTable(mod, descendant:GetFullName(), {})
-            end
+    for _, service in ipairs(servicesToScan) do
+        for _, descendant in ipairs(service:GetDescendants()) do
+            local success, _ = pcall(function()
+                if descendant:IsA("RemoteFunction") then
+                    table.insert(context, "REMOTE: " .. descendant:GetFullName())
+                elseif descendant:IsA("ModuleScript") then
+                    local ok, mod = pcall(require, descendant)
+                    if ok and type(mod) == "table" then
+                        dumpTable(mod, descendant:GetFullName(), {})
+                    end
+                end
+            end)
         end
     end
+    
     return context
 end
 
@@ -139,7 +152,8 @@ local function processQuery(userQuery)
                     if type(data) == "table" and plan.searchKey then
                         local foundValue = nil
                         for k, v in pairs(data) do
-                            if type(k) == "string" and string.lower(k) == plan.searchKey then
+                           local keyString = tostring(k)
+                            if string.lower(keyString) == plan.searchKey then
                                 foundValue = v
                                 break
                             end
