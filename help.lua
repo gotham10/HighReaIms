@@ -146,4 +146,4 @@ local function processQuery(userQuery)
     print("-----------------------")
 end
 
-processQuery(myQuestion)
+return processQuery
