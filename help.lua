@@ -73,9 +73,20 @@ function AI:scanGame()
                     if descendant:IsA("RemoteFunction") then
                         table.insert(context.remotes, { path = descendant:GetFullName(), object = descendant })
                     elseif descendant:IsA("ModuleScript") then
-                        local ok, mod = pcall(require, descendant)
-                        if ok and type(mod) == "table" then
-                            dumpTable(mod, descendant:GetFullName())
+                        local isClientSide = false
+                        local ancestor = descendant
+                        while ancestor and ancestor.Parent do
+                            if ancestor:IsA("ReplicatedStorage") or ancestor:IsA("ReplicatedFirst") or ancestor:IsA("Players") or ancestor:IsA("StarterGui") or ancestor:IsA("StarterPlayer") or ancestor:IsA("Workspace") then
+                                isClientSide = true
+                                break
+                            end
+                            ancestor = ancestor.Parent
+                        end
+                        if isClientSide then
+                            local ok, mod = pcall(require, descendant)
+                            if ok and type(mod) == "table" then
+                                dumpTable(mod, descendant:GetFullName())
+                            end
                         end
                     elseif descendant:IsA("ValueBase") and not descendant.Parent:IsA("Player") and not (descendant.Parent and descendant.Parent.Name == "leaderstats") then
                         table.insert(context.values, { path = descendant:GetFullName(), value = descendant.Value, object = descendant, source = "valueobject" })
@@ -121,7 +132,7 @@ function AI:createExecutionPlan(userQuery, gameContext)
     end
 
     for _, val in ipairs(gameContext.values) do
-        local currentScore = scorePath(val.path) * 2
+        local currentScore = scorePath(val.path) * 10
         if val.source == "leaderstat" then currentScore = currentScore * 1.5 end
         if currentScore > bestPlan.score then
             bestPlan.score = currentScore
@@ -130,7 +141,7 @@ function AI:createExecutionPlan(userQuery, gameContext)
     end
 
     for _, remote in ipairs(gameContext.remotes) do
-        local currentScore = scorePath(remote.path)
+        local currentScore = scorePath(remote.path) * 2
         if currentScore > bestPlan.score then
             bestPlan.score = currentScore
             bestPlan.steps = {{ action = "INVOKE_REMOTE", target = remote.path }, { action = "ANALYZE_RESULT" }}
@@ -138,7 +149,7 @@ function AI:createExecutionPlan(userQuery, gameContext)
     end
 
     for _, mod_val in ipairs(gameContext.modules) do
-        local currentScore = scorePath(mod_val.path) * 0.5 
+        local currentScore = scorePath(mod_val.path)
         if currentScore > bestPlan.score then
             bestPlan.score = currentScore
             bestPlan.steps = {{ action = "READ_MODULE_VALUE", target = mod_val.path, value = mod_val.value }}
