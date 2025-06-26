@@ -104,6 +104,7 @@ local function processQuery(userQuery)
             break
         end
     end
+    
     if not finalAnswer and #results.Modules > 0 then
          for _, modInfo in ipairs(results.Modules) do
             if modInfo.Value and string.match(modInfo.Value, "%d") then
@@ -112,6 +113,7 @@ local function processQuery(userQuery)
             end
         end
     end
+
     if not finalAnswer and #results.Remotes > 0 then
         local remoteFailures = {}
         for _, remoteInfo in ipairs(results.Remotes) do
@@ -131,6 +133,7 @@ local function processQuery(userQuery)
             finalAnswer = "I am unsure. I attempted to invoke the following RemoteFunctions, but they failed:\n" .. table.concat(remoteFailures, "\n")
         end
     end
+    
     local finalReport
     if finalAnswer then
         finalReport = finalAnswer
@@ -139,4 +142,5 @@ local function processQuery(userQuery)
     end
     print(finalReport)
 end
+
 return processQuery
