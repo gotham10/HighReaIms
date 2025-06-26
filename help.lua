@@ -33,8 +33,23 @@ local function getObjectFromPath(path)
 end
 
 local function findData(keyword)
-    local findings = { Labels = {}, Modules = {}, Remotes = {} }
+    local findings = { Leaderstats = nil, Labels = {}, Modules = {}, Remotes = {} }
     if not keyword or type(keyword) ~= "string" or keyword == "" then return findings end
+
+    local localPlayer = game.Players.LocalPlayer
+    local leaderstats = localPlayer:FindFirstChild("leaderstats")
+    if leaderstats then
+        for _, stat in ipairs(leaderstats:GetChildren()) do
+            if string.lower(stat.Name) == keyword then
+                if stat:IsA("ValueBase") then
+                    findings.Leaderstats = { Path = stat:GetFullName(), Value = stat.Value }
+                    break
+                end
+            end
+        end
+    end
+
+    if findings.Leaderstats then return findings end
 
     local function searchTable(tbl, path, visited)
         visited = visited or {}
@@ -98,10 +113,16 @@ local function processQuery(userQuery)
     local results = findData(keyword)
     local finalAnswer = nil
 
-    for _, labelInfo in ipairs(results.Labels) do
-        if labelInfo.Text and string.match(labelInfo.Text, "%d") then
-            finalAnswer = "The AI has concluded the answer is: '" .. labelInfo.Text .. "'. This was found in a GUI element at: " .. labelInfo.Path
-            break
+    if results.Leaderstats then
+        finalAnswer = "The AI has concluded the answer is: '" .. tostring(results.Leaderstats.Value) .. "'. This was found in leaderstats at: " .. results.Leaderstats.Path
+    end
+
+    if not finalAnswer then
+        for _, labelInfo in ipairs(results.Labels) do
+            if labelInfo.Text and string.match(labelInfo.Text, "%d") then
+                finalAnswer = "The AI has concluded the answer is: '" .. labelInfo.Text .. "'. This was found in a GUI element at: " .. labelInfo.Path
+                break
+            end
         end
     end
     
@@ -138,8 +159,9 @@ local function processQuery(userQuery)
     if finalAnswer then
         finalReport = finalAnswer
     else
-        finalReport = "I am unsure. After a full scan for '"..keyword.."', I could not find a definitive answer in any GUI elements, modules, or remotes."
+        finalReport = "I am unsure. After a full scan for '"..keyword.."', I could not find a definitive answer in leaderstats, GUI elements, modules, or remotes."
     end
+
     print(finalReport)
 end
 
