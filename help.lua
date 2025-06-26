@@ -104,7 +104,6 @@ local function processQuery(userQuery)
             break
         end
     end
-    
     if not finalAnswer and #results.Modules > 0 then
          for _, modInfo in ipairs(results.Modules) do
             if modInfo.Value and string.match(modInfo.Value, "%d") then
@@ -113,7 +112,6 @@ local function processQuery(userQuery)
             end
         end
     end
-
     if not finalAnswer and #results.Remotes > 0 then
         local remoteFailures = {}
         for _, remoteInfo in ipairs(results.Remotes) do
@@ -133,17 +131,12 @@ local function processQuery(userQuery)
             finalAnswer = "I am unsure. I attempted to invoke the following RemoteFunctions, but they failed:\n" .. table.concat(remoteFailures, "\n")
         end
     end
-    
     local finalReport
     if finalAnswer then
         finalReport = finalAnswer
     else
         finalReport = "I am unsure. After a full scan for '"..keyword.."', I could not find a definitive answer in any GUI elements, modules, or remotes."
     end
-
-    print("\n--- AI Final Report ---")
     print(finalReport)
-    print("-----------------------")
 end
-
 return processQuery
