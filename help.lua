@@ -236,12 +236,12 @@ local function processQuery(userQuery)
     if plan then
         local executionResults = AI:executePlan(plan)
         if executionResults.success and executionResults.finalAnswer ~= nil then
-            print(tostring(executionResults.finalAnswer))
+            setclipboard(tostring(executionResults.finalAnswer))
         else
-            print("I was unable to find the answer.")
+            setclipboard("I was unable to find the answer.")
         end
     else
-        print("I am unsure how to answer that.")
+        setclipboard("I am unsure how to answer that.")
     end
 end
 
