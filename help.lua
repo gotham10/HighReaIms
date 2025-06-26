@@ -1,18 +1,24 @@
 local HttpService = game:GetService("HttpService")
 
-local function queryAI(prompt)
-    local success, result = pcall(function()
-        local requestUrl = "https://ai-zs6m.onrender.com"
-        local requestBody = HttpService:JSONEncode({ prompt = "Analyze the following user query and extract the single most important noun or keyword. For example, from 'how many coins do I have', you should only return 'coins'. From 'what is my current health', you should return 'health'. From the user query: '" .. prompt .. "'" })
-        local response = request({ Url = requestUrl, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = requestBody })
-        local decodedResponse = HttpService:JSONDecode(response.Body)
-        return decodedResponse.response
-    end)
-    if success and result then
-        return result:match("^%s*(.-)%s*$"):gsub('"', ''):gsub("'", ""):lower()
-    else
-        return nil
+local function extractKeyword(prompt)
+    local stopWords = {
+        ["how"] = true, ["many"] = true, ["what"] = true, ["is"] = true,
+        ["my"] = true, ["the"] = true, ["do"] = true, ["i"] = true,
+        ["have"] = true, ["a"] = true, ["get"] = true, ["can"] = true,
+        ["current"] = true, ["value"] = true, ["of"] = true
+    }
+    local bestKeyword = nil
+    local words = {}
+    for word in string.gmatch(string.lower(prompt), "%w+") do
+        table.insert(words, word)
     end
+    for i = #words, 1, -1 do
+        if not stopWords[words[i]] then
+            bestKeyword = words[i]
+            break
+        end
+    end
+    return bestKeyword
 end
 
 local function getObjectFromPath(path)
@@ -83,9 +89,9 @@ local function invokeRemote(remoteFunc)
 end
 
 local function processQuery(userQuery)
-    local keyword = queryAI(userQuery)
+    local keyword = extractKeyword(userQuery)
     if not keyword then
-        print("The AI could not determine a keyword from your request or the web request failed.")
+        print("Could not determine a keyword from your request.")
         return
     end
 
@@ -139,4 +145,5 @@ local function processQuery(userQuery)
     print(finalReport)
     print("-----------------------")
 end
+
 processQuery(myQuestion)
