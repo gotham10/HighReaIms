@@ -6,7 +6,7 @@ function AI:getObjectFromPath(path)
     local current = game
     for part in string.gmatch(path, "[^%.]+") do
         if part ~= "game" then
-            current = current:FindFirstChild(part)
+            current = current:FindFirstChild(part, true) -- Use recursive FindFirstChild
             if not current then return nil end
         end
     end
@@ -36,65 +36,30 @@ function AI:scanGame()
         game:GetService("Workspace"), game:GetService("ReplicatedStorage"),
         game:GetService("ReplicatedFirst"), game:GetService("Players"),
         game:GetService("StarterGui"), game:GetService("StarterPlayer"),
-        game:GetService("ServerScriptService"), game:GetService("ServerStorage"),
     }
-    local visitedModules = {}
-
-    local function dumpTable(tbl, path)
-        if visitedModules[tbl] or not (type(tbl) == "table") then return end
-        visitedModules[tbl] = true
-        for k, v in pairs(tbl) do
-            local currentPath = path .. "." .. tostring(k)
-            local valueType = type(v)
-            if valueType ~= "function" and valueType ~= "userdata" and valueType ~= "table" then
-                table.insert(context.modules, { path = currentPath, value = tostring(v), key = tostring(k) })
-            elseif valueType == "table" then
-                dumpTable(v, currentPath)
-            end
-        end
-    end
-
-    local localPlayer = game:GetService("Players").LocalPlayer
-    if localPlayer then
-        local leaderstats = localPlayer:FindFirstChild("leaderstats")
-        if leaderstats then
-            for _, stat in ipairs(leaderstats:GetChildren()) do
-                if stat:IsA("ValueBase") and AI:isGameSpecificObject(stat) then
-                    table.insert(context.values, { path = stat:GetFullName(), value = stat.Value, object = stat, source = "leaderstat" })
-                end
-            end
-        end
-    end
-
-    for _, service in ipairs(servicesToScan) do
-        for _, descendant in ipairs(service:GetDescendants()) do
+    
+    local function processDescendants(root)
+        for _, descendant in ipairs(root:GetDescendants()) do
             if AI:isGameSpecificObject(descendant) then
                 pcall(function()
                     if descendant:IsA("RemoteFunction") then
-                        table.insert(context.remotes, { path = descendant:GetFullName(), object = descendant })
-                    elseif descendant:IsA("ModuleScript") then
-                        local isClientSide = false
-                        local ancestor = descendant
-                        while ancestor and ancestor.Parent do
-                            if ancestor:IsA("ReplicatedStorage") or ancestor:IsA("ReplicatedFirst") or ancestor:IsA("Players") or ancestor:IsA("StarterGui") or ancestor:IsA("StarterPlayer") or ancestor:IsA("Workspace") then
-                                isClientSide = true
-                                break
-                            end
-                            ancestor = ancestor.Parent
-                        end
-                        if isClientSide then
-                            local ok, mod = pcall(require, descendant)
-                            if ok and type(mod) == "table" then
-                                dumpTable(mod, descendant:GetFullName())
-                            end
-                        end
-                    elseif descendant:IsA("ValueBase") and not descendant.Parent:IsA("Player") and not (descendant.Parent and descendant.Parent.Name == "leaderstats") then
-                        table.insert(context.values, { path = descendant:GetFullName(), value = descendant.Value, object = descendant, source = "valueobject" })
+                        table.insert(context.remotes, { path = descendant:GetFullName() })
+                    elseif descendant:IsA("ValueBase") then
+                         local isLeaderstat = false
+                         if descendant.Parent and descendant.Parent.Name == "leaderstats" and descendant.Parent.Parent:IsA("Player") then
+                             isLeaderstat = true
+                         end
+                         table.insert(context.values, { path = descendant:GetFullName(), source = isLeaderstat and "leaderstat" or "valueobject" })
                     end
                 end)
             end
         end
     end
+
+    for _, service in ipairs(servicesToScan) do
+        processDescendants(service)
+    end
+    
     return context
 end
 
@@ -103,7 +68,7 @@ function AI:createExecutionPlan(userQuery, gameContext)
         ["a"]=true,["an"]=true,["the"]=true,["is"]=true,["are"]=true,["was"]=true,["were"]=true,
         ["how"]=true,["many"]=true,["what"]=true,["where"]=true,["when"]=true,["who"]=true,
         ["get"]=true,["find"]=true,["do"]=true,["does"]=true,["did"]=true,["i"]=true,["me"]=true,
-        ["my"]=true,["mine"]=true,["in"]=true,["on"]=true,["of"]=true, ["have"]=true, ["much"]=true,
+        ["my"]=true,["mine"]=true,["in"]=true,["on"]=true,["of"]=true, ["have"]=true, ["much"]=true, ["show"]=true
     }
     local queryKeywords = {}
     for word in string.gmatch(string.lower(userQuery), "%w+") do
@@ -114,26 +79,23 @@ function AI:createExecutionPlan(userQuery, gameContext)
 
     if #queryKeywords == 0 then return nil end
 
-    local bestPlan = { score = 0, steps = {}, keywords = queryKeywords }
+    local bestPlan = { score = -1, steps = {}, keywords = queryKeywords }
 
-    local function scorePath(path)
+    local function scorePath(path, keywords)
         local score = 0
         local lowerPath = string.lower(path)
-        local matches = 0
-        for _, word in ipairs(queryKeywords) do
+        for _, word in ipairs(keywords) do
             if string.find(lowerPath, word) then
-                matches = matches + 1
+                score = score + 1
             end
-        end
-        if matches > 0 then
-            score = matches ^ 2 
         end
         return score
     end
 
     for _, val in ipairs(gameContext.values) do
-        local currentScore = scorePath(val.path) * 10
+        local currentScore = scorePath(val.path, queryKeywords) * 2
         if val.source == "leaderstat" then currentScore = currentScore * 1.5 end
+        
         if currentScore > bestPlan.score then
             bestPlan.score = currentScore
             bestPlan.steps = {{ action = "READ_VALUE", target = val.path }}
@@ -141,18 +103,14 @@ function AI:createExecutionPlan(userQuery, gameContext)
     end
 
     for _, remote in ipairs(gameContext.remotes) do
-        local currentScore = scorePath(remote.path) * 2
-        if currentScore > bestPlan.score then
-            bestPlan.score = currentScore
-            bestPlan.steps = {{ action = "INVOKE_REMOTE", target = remote.path }, { action = "ANALYZE_RESULT" }}
+        local currentScore = scorePath(remote.path, queryKeywords) * 3 -- Remotes are highly valued
+        if string.find(string.lower(remote.path), "inventory") or string.find(string.lower(remote.path), "data") then
+             currentScore = currentScore * 2 -- Especially valuable remotes
         end
-    end
 
-    for _, mod_val in ipairs(gameContext.modules) do
-        local currentScore = scorePath(mod_val.path)
         if currentScore > bestPlan.score then
             bestPlan.score = currentScore
-            bestPlan.steps = {{ action = "READ_MODULE_VALUE", target = mod_val.path, value = mod_val.value }}
+            bestPlan.steps = {{ action = "INVOKE_REMOTE", target = remote.path }, { action = "DEEP_ANALYZE_RESULT" }}
         end
     end
 
@@ -164,38 +122,65 @@ function AI:createExecutionPlan(userQuery, gameContext)
 end
 
 function AI:invokeRemote(remoteFunc)
-    if not remoteFunc then return false, "RemoteFunction not found" end
-    local done, success, result = false, false, nil
-    local thread = coroutine.create(function()
-        success, result = pcall(remoteFunc.InvokeServer, remoteFunc)
-        done = true
-    end)
-    coroutine.resume(thread)
-    local start = tick()
-    while not done and tick() - start < 5 do
-        task.wait()
+    if not remoteFunc or not remoteFunc:IsA("RemoteFunction") then return false, "RemoteFunction not found or invalid" end
+    local success, result = pcall(remoteFunc.InvokeServer, remoteFunc)
+    if not success then
+        return false, result -- Pass the error message
     end
-    if not done then
-        coroutine.close(thread)
-        return false, "Function timed out"
-    end
-    return success, result
+    return true, result
 end
+
+function AI:deepAnalyzeResult(data, keywords)
+    local bestMatch = {score = -1, value = nil}
+
+    local function searchTable(currentTable, path)
+        if type(currentTable) ~= "table" then return end
+
+        for key, value in pairs(currentTable) do
+            local newPath = path .. "." .. string.lower(tostring(key))
+            local currentScore = 0
+            
+            for _, keyword in ipairs(keywords) do
+                if string.find(newPath, keyword) then
+                    currentScore = currentScore + 1
+                end
+            end
+            
+            if type(value) ~= "table" and type(value) ~= "function" then
+                if currentScore > bestMatch.score then
+                    bestMatch.score = currentScore
+                    bestMatch.value = value
+                end
+            else
+                searchTable(value, newPath)
+            end
+        end
+    end
+
+    searchTable(data, "")
+    
+    if bestMatch.score > 0 then
+        return bestMatch.value
+    end
+
+    return nil
+end
+
 
 function AI:executePlan(plan)
     local results = { success = true, finalAnswer = nil }
     local lastData = nil
 
     for _, step in ipairs(plan.steps) do
+        if not results.success then break end
+
         if step.action == "READ_VALUE" then
             local object = AI:getObjectFromPath(step.target)
             if object and object:IsA("ValueBase") then
                 lastData = object.Value
             else
-                results.success = false; break
+                results.success = false
             end
-        elseif step.action == "READ_MODULE_VALUE" then
-            lastData = step.value
         elseif step.action == "INVOKE_REMOTE" then
             local remoteObject = AI:getObjectFromPath(step.target)
             if remoteObject then
@@ -203,32 +188,20 @@ function AI:executePlan(plan)
                 if success then
                     lastData = data
                 else
-                    results.success = false; break
+                    results.success = false
                 end
             else
-                results.success = false; break
+                results.success = false
             end
-        elseif step.action == "ANALYZE_RESULT" then
+        elseif step.action == "DEEP_ANALYZE_RESULT" then
             if type(lastData) == "table" then
-                local bestMatch = { score = 0, value = nil }
-                for k, v in pairs(lastData) do
-                    local keyStr = string.lower(tostring(k))
-                    local currentScore = 0
-                    for _, keyword in ipairs(plan.keywords) do
-                        if string.find(keyStr, keyword) then
-                            currentScore = currentScore + 1
-                        end
-                    end
-                    if currentScore > bestMatch.score then
-                        bestMatch.score = currentScore
-                        bestMatch.value = v
-                    end
-                end
-                if bestMatch.score > 0 then
-                    lastData = bestMatch.value
-                else
-                    lastData = HttpService:JSONEncode(lastData) 
-                end
+                 local foundValue = AI:deepAnalyzeResult(lastData, plan.keywords)
+                 if foundValue ~= nil then
+                     lastData = foundValue
+                 else
+                     -- If deep analysis fails, maybe the raw data is the answer
+                     lastData = HttpService:JSONEncode(lastData)
+                 end
             end
         end
     end
